@@ -116,12 +116,6 @@ app.get('/clients', async (req, res) => {
     });
 
     console.log('Request URL:', `${API_CONFIG.baseUrl}${API_CONFIG.endpoints.graphql}`);
-    console.log('Request headers:', {
-      'Content-Type': 'application/json',
-      'Accept': 'application/json',
-      'Authorization': `Bearer ${storedTokens.access_token.substring(0, 10)}...`,
-      'X-API-Version': '2024-04-02'
-    });
     console.log('Request body:', JSON.stringify({ query }));
 
     console.log('Response status:', response.status);
