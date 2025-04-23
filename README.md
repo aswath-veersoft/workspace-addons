@@ -10,3 +10,10 @@ https://developer.getjobber.com/docs/building_your_app/app_authorization
 
 ### API Versioning
 https://developer.getjobber.com/docs/using_jobbers_api/api_versioning/
+
+
+## Running the example
+Set CLIENT_ID and CLIENT_SECRET in the environment before running server
+
+After authentication is done, do 
+http://localhost:3000/clients
