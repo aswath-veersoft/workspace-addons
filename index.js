@@ -30,6 +30,7 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 
 // Initialize Express app
 const app = express();
+app.use(express.json());
 
 // Initial page redirecting to GetJobber
 app.get('/auth', (req, res) => {
@@ -193,42 +194,104 @@ app.get('/clients', async (req, res) => {
   }
 });
 
-app.get('/settoken', async (req, res) => {
-  const email = req.query.email;
-  const provider = 'getjobber';
-  const status = 'active';
-  const token = req.query.token;
-    const { data, error } = await supabase
-        .from('tokens')
-        .insert([
-            { provider, email, token, status, created_at: new Date().toISOString() }
-        ]);
-    if (error) {
-        console.error('Error saving token:', error);
-    } else {
-        console.log('Token saved successfully:', data);
-    }
-    res.json({ success: true });
-});
+app.post('/checkExistingClient', async (req, res) => {
+  app.use(express.json());
+  console.log("REQ BODY:", req.body);
+  console.log("REQ QUERY:", req.query);
+  const { email, token } = req.body;
 
-app.get('/newclient', async (req, res) => {
-  const gmail = req.query.gmail;
-  const name = req.query.name;
-  const email = req.query.email;
-  const companyName = req.query.company;
-  const token = req.query.token;
-  console.log('@newclient/Token:', token);
+  console.log({ email, token });
   if (!token) {
     return res.status(401).json({ error: 'Not authenticated. Please login first.' });
   }
-  const [firstName, lastName = ""] = name.split(' '); // Default lastName to an empty string if undefined
+  const query = `
+  query {
+    clients(searchTerm: "${email}") {
+      nodes {
+        id
+        firstName
+        emails {
+          address
+        }
+        billingAddress {
+        street
+        street1
+        street2
+        province
+        postalCode
+        country
+      }
+      }
+    }
+  }
+`;
+
+  try {
+    const response = await fetch(`${API_CONFIG.baseUrl}${API_CONFIG.endpoints.graphql}`, {
+      method: 'POST',
+      headers: {
+        'X-JOBBER-GRAPHQL-VERSION': '2025-01-20',
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ query })
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to check client: ${response.status} ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    console.log('Full Response:', JSON.stringify(data));
+
+    const tempResponse = data;
+
+    // Manually find the client with a matching email address
+    const client = tempResponse.data.clients.nodes[0];
+    console.log('Client:', JSON.stringify(client));
+    if (!client) {
+      return res.status(200).json({ exists: false });
+    }
+
+    // Send back the matched client
+    return res.status(200).json({
+      exists: true,
+      client: {
+        id: client.id,
+        firstName: client.firstName || '',
+        lastName: client.lastName || '',
+        email: client.emails[0]?.address || '',
+        address: client.billingAddress || {}
+      }
+    });
+  } catch (error) {
+    console.error('Error checking client:', error);
+    return res.status(500).json({ error: 'Failed to check client', details: error.message });
+  }
+});
+
+app.post('/newclient', async (req, res) => {
+  app.use(express.json());
+  console.log("REQ BODY:", req.body);
+  console.log("REQ QUERY:", req.query);
+  const { gmail, firstName, lastName, email, company, companyPhone, token } = req.body;
+
+  console.log({ gmail, firstName, lastName, email, company, companyPhone, token });
+  if (!token) {
+    return res.status(401).json({ error: 'Not authenticated. Please login first.' });
+  }
+  //await setToken(gmail, 'getjobber', 'active', token);
+
   const query = `
   mutation {
     clientCreate(
       input: {
         firstName: "${firstName.replace(/"/g, '\\"')}"
         lastName: "${lastName.replace(/"/g, '\\"')}"
-        companyName: "${companyName.replace(/"/g, '\\"')}"
+        companyName: "${company.replace(/"/g, '\\"')}"
+        phones: [
+          { description: MAIN, primary: true, number: "${companyPhone.replace(/"/g, '\\"')}" }
+        ]
         emails: [
           { description: MAIN, primary: true, address: "${email.replace(/"/g, '\\"')}" }
         ]
@@ -281,7 +344,7 @@ app.get('/newclient', async (req, res) => {
 
 app.get('/status', async (req, res) => {
   const gmail = req.query.gmail;
-  const token = sessions[decodeURIComponent(gmail)];
+  const token = sessions[gmail];
 console.log('@status/Token:', token);
 
   if (!token) {
@@ -324,6 +387,46 @@ console.log('@status/Token:', token);
   } catch (e) {
     console.error('Repo fetch error', e);
     res.json({ loggedIn: false });
+  }
+});
+
+app.get('/client-jobs', async (req, res) => {
+  const email = req.query.email;
+  if (!email) {
+    return res.status(400).json({ error: 'Email is required.' });
+  }
+
+  try {
+    // Check if client exists
+    const clientResponse = await fetch(`https://api.getjobber.com/api/clients?email=${email}`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${process.env.GETJOBBER_API_TOKEN}`
+      }
+    });
+
+    const clientData = await clientResponse.json();
+    if (!clientData || clientData.length === 0) {
+      return res.status(404).json({ error: 'Client not found.' });
+    }
+
+    const clientId = clientData[0].id;
+
+    // Retrieve jobs for the client
+    const jobsResponse = await fetch(`https://api.getjobber.com/api/clients/${clientId}/jobs`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${process.env.GETJOBBER_API_TOKEN}`
+      }
+    });
+
+    const jobsData = await jobsResponse.json();
+    return res.status(200).json(jobsData);
+  } catch (error) {
+    return res.status(500).json({
+      error: 'An error occurred while fetching client jobs.',
+      details: error.message
+    });
   }
 });
 
