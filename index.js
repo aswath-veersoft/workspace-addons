@@ -195,36 +195,43 @@ app.get('/clients', async (req, res) => {
 });
 
 app.post('/checkExistingClient', async (req, res) => {
-  app.use(express.json());
-  console.log("REQ BODY:", req.body);
-  console.log("REQ QUERY:", req.query);
   const { email, token } = req.body;
 
-  console.log({ email, token });
-  if (!token) {
-    return res.status(401).json({ error: 'Not authenticated. Please login first.' });
-  }
   const query = `
-  query {
-    clients(searchTerm: "${email}") {
-      nodes {
+query {
+  clients(first: 1, searchTerm: "${email}") {
+    edges {
+      node {
         id
-        firstName
-        emails {
-          address
+        name
+        jobs(first: 20) {
+          edges {
+            node {
+              id
+              title
+              jobType
+              jobNumber
+              jobStatus
+              jobberWebUri
+            }
+          }
         }
-        billingAddress {
-        street
-        street1
-        street2
-        province
-        postalCode
-        country
-      }
+        clientProperties {
+          nodes {
+            id
+            address {
+              street
+              city
+              province
+              country
+              postalCode
+            }
+          }
+        }
       }
     }
   }
-`;
+}`;
 
   try {
     const response = await fetch(`${API_CONFIG.baseUrl}${API_CONFIG.endpoints.graphql}`, {
@@ -234,7 +241,9 @@ app.post('/checkExistingClient', async (req, res) => {
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ query })
+      body: JSON.stringify({ query }),
+      redirect: 'follow',
+      follow: 20
     });
 
     if (!response.ok) {
@@ -242,26 +251,25 @@ app.post('/checkExistingClient', async (req, res) => {
     }
 
     const data = await response.json();
-    console.log('Full Response:', JSON.stringify(data));
-
-    const tempResponse = data;
-
-    // Manually find the client with a matching email address
-    const client = tempResponse.data.clients.nodes[0];
-    console.log('Client:', JSON.stringify(client));
-    if (!client) {
+    
+    // Check if we have any clients in the response
+    const clientEdge = data?.data?.clients?.edges?.[0];
+    if (!clientEdge) {
       return res.status(200).json({ exists: false });
     }
 
-    // Send back the matched client
+    const client = clientEdge.node;
+    
+    // Send back the matched client with proper null checks
     return res.status(200).json({
       exists: true,
       client: {
         id: client.id,
         firstName: client.firstName || '',
         lastName: client.lastName || '',
-        email: client.emails[0]?.address || '',
-        address: client.billingAddress || {}
+        email: client.emails?.nodes?.[0]?.address || '',
+        address: client.clientProperties?.nodes?.[0]?.address || {},
+        jobs: client.jobs?.edges?.map(edge => edge.node) || []
       }
     });
   } catch (error) {
@@ -280,8 +288,6 @@ app.post('/newclient', async (req, res) => {
   if (!token) {
     return res.status(401).json({ error: 'Not authenticated. Please login first.' });
   }
-  //await setToken(gmail, 'getjobber', 'active', token);
-
   const query = `
   mutation {
     clientCreate(
@@ -289,10 +295,10 @@ app.post('/newclient', async (req, res) => {
         firstName: "${firstName.replace(/"/g, '\\"')}"
         lastName: "${lastName.replace(/"/g, '\\"')}"
         companyName: "${company.replace(/"/g, '\\"')}"
-        phones: [
+      phones: [
           { description: MAIN, primary: true, number: "${companyPhone.replace(/"/g, '\\"')}" }
         ]
-        emails: [
+      emails: [
           { description: MAIN, primary: true, address: "${email.replace(/"/g, '\\"')}" }
         ]
       }
@@ -318,7 +324,9 @@ app.post('/newclient', async (req, res) => {
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ query })
+      body: JSON.stringify({ query }),
+      redirect: 'follow',
+      follow: 20
     });
 
     if (!response.ok) {
@@ -327,7 +335,7 @@ app.post('/newclient', async (req, res) => {
 
     const data = await response.json();
     console.log('Full Response:', data);
-    
+
     if (data.errors) {
       console.error('GraphQL Errors:', data.errors);
       return res.status(500).json({ error: 'Failed to create client', details: data.errors });
@@ -341,6 +349,240 @@ app.post('/newclient', async (req, res) => {
   }
 });
 
+app.post('/create-property', async (req, res) => {
+  const { address, token, clientId, isBillingAddress = false } = req.body;
+  console.log({ address, token, clientId, isBillingAddress });
+
+  if (!address || !token || !clientId) {
+    return res.status(401).json({ 
+      error: 'Missing required fields', 
+      details: 'Authentication token, address, and clientId are required.' 
+    });
+  }
+
+  // Updated mutation to create a property with proper client association
+  const query = `
+  mutation CreateProperty(
+    $clientId: ID!
+    $address: PropertyAddressInput!
+    $isBillingAddress: Boolean
+  ) {
+    propertyCreate(
+      input: {
+        clientId: "${clientId}"
+        address: {
+          street1: "${address.street1}"
+          street2: "${address.street2 || ''}"
+          city: "${address.city}"
+          province: "${address.province}"
+          country: "${address.country}"
+          postalCode: "${address.postalCode}"
+        }
+        isBillingAddress: "${isBillingAddress}"
+      }
+    ) {
+      property {
+        id
+        address {
+          street1
+          street2
+          city
+          province
+          country
+          postalCode
+        }
+        client {
+          id
+          firstName
+          lastName
+        }
+        isBillingAddress
+        jobberWebUri
+        routingOrder
+      }
+      userErrors {
+        message
+        path
+        code
+      }
+    }
+  }`;
+
+  const variables = {
+    clientId: clientId,
+    address: {
+      street1: address.street1,
+      street2: address.street2 || '',
+      city: address.city,
+      province: address.province,
+      country: address.country,
+      postalCode: address.postalCode
+    },
+    isBillingAddress: isBillingAddress
+  };
+
+  try {
+    const response = await fetch(`${API_CONFIG.baseUrl}${API_CONFIG.endpoints.graphql}`, {
+      method: 'POST',
+      headers: {
+        'X-JOBBER-GRAPHQL-VERSION': '2025-01-20',
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        query,
+        variables
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to create property: ${response.status} ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    console.log('Full Response:', data);
+    
+    if (data.errors) {
+      console.error('GraphQL Errors:', data.errors);
+      return res.status(400).json({ 
+        error: 'Failed to create property', 
+        details: data.errors 
+      });
+    }
+
+    if (data.data.propertyCreate.userErrors?.length > 0) {
+      return res.status(400).json({
+        error: 'Validation errors occurred',
+        details: data.data.propertyCreate.userErrors
+      });
+    }
+    
+    console.log('Property created:', data.data.propertyCreate.property);
+    return res.status(200).json({
+      success: true,
+      property: data.data.propertyCreate.property
+    });
+
+  } catch (error) {
+    console.error('Error creating property:', error);
+    return res.status(500).json({ 
+      error: 'Failed to create property', 
+      details: error.message 
+    });
+  }
+});
+
+// Add a new endpoint to get property details
+app.get('/property/:propertyId', async (req, res) => {
+  const { propertyId } = req.params;
+  const { token } = req.query;
+
+  if (!token || !propertyId) {
+    return res.status(401).json({ 
+      error: 'Missing required fields', 
+      details: 'Authentication token and propertyId are required.' 
+    });
+  }
+
+  const query = `
+  query GetProperty($propertyId: ID!) {
+    property(id: $propertyId) {
+      id
+      address {
+        street1
+        street2
+        city
+        province
+        country
+        postalCode
+      }
+      client {
+        id
+        firstName
+        lastName
+      }
+      isBillingAddress
+      jobberWebUri
+      jobs(first: 10) {
+        edges {
+          node {
+            id
+            title
+            jobStatus
+          }
+        }
+      }
+      quotes(first: 10) {
+        edges {
+          node {
+            id
+            title
+            status
+          }
+        }
+      }
+      requests(first: 10) {
+        edges {
+          node {
+            id
+            title
+            status
+          }
+        }
+      }
+      routingOrder
+      taxRate {
+        id
+        name
+        rate
+      }
+    }
+  }`;
+
+  const variables = {
+    propertyId
+  };
+
+  try {
+    const response = await fetch(`${API_CONFIG.baseUrl}${API_CONFIG.endpoints.graphql}`, {
+      method: 'POST',
+      headers: {
+        'X-JOBBER-GRAPHQL-VERSION': '2025-01-20',
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        query,
+        variables
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch property: ${response.status} ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    
+    if (data.errors) {
+      return res.status(400).json({ 
+        error: 'Failed to fetch property', 
+        details: data.errors 
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      property: data.data.property
+    });
+
+  } catch (error) {
+    console.error('Error fetching property:', error);
+    return res.status(500).json({ 
+      error: 'Failed to fetch property', 
+      details: error.message 
+    });
+  }
+});
 
 app.get('/status', async (req, res) => {
   const gmail = req.query.gmail;
