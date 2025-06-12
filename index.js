@@ -567,52 +567,6 @@ app.get('/property/:propertyId', async (req, res) => {
   }
 });
 
-app.get('/getClient', async (req, res) => {
-const {email,token}  = req.body;
-console.log('email:',email);
-console.log('token:',token);
-  if (!token) {
-    return res.json({ loggedIn: false });
-  }
-
-  try {
-    const repoRes = await fetch(`${API_CONFIG.baseUrl}${API_CONFIG.endpoints.graphql}`, {
-      method: 'POST',
-      redirect: 'follow',
-      follow: 20,
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': '*/*',
-        'Authorization': `Bearer ${token}`,
-        'X-JOBBER-GRAPHQL-VERSION': '2025-01-20'
-      },
-      body: JSON.stringify({
-        query: `
-          query {
-            clients(first: 1, searchTerm: "${email}") { 
-              nodes {
-                id
-                firstName
-                lastName
-                billingAddress {
-                  city
-                }
-              }
-              totalCount
-            }
-          }
-        `
-      })
-    });
-    const clients = await repoRes.json();
-    console.log('Clients:', clients.data.clients.nodes[0]);
-
-    res.json({ client: clients.data.clients.nodes[0]});
-  } catch (e) {
-    console.error('Repo fetch error', e);
-    res.json({ loggedIn: false });
-  }
-});
 
 app.get('/client-jobs', async (req, res) => {
   const email = req.query.email;
