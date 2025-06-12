@@ -203,7 +203,9 @@ query {
     edges {
       node {
         id
-        name
+        firstName
+        lastName
+        companyName
         jobs(first: 20) {
           edges {
             node {
@@ -251,7 +253,7 @@ query {
     }
 
     const data = await response.json();
-    
+    console.log('data:', data);
     // Check if we have any clients in the response
     const clientEdge = data?.data?.clients?.edges?.[0];
     if (!clientEdge) {
@@ -350,8 +352,8 @@ app.post('/newclient', async (req, res) => {
 });
 
 app.post('/create-property', async (req, res) => {
-  const { address, token, clientId, isBillingAddress = false } = req.body;
-  console.log({ address, token, clientId, isBillingAddress });
+  const { address, token, clientId } = req.body;
+  console.log({ address, token, clientId });
 
   if (!address || !token || !clientId) {
     return res.status(401).json({ 
@@ -360,28 +362,25 @@ app.post('/create-property', async (req, res) => {
     });
   }
 
-  // Updated mutation to create a property with proper client association
+  // Simplified mutation without variables
   const query = `
-  mutation CreateProperty(
-    $clientId: ID!
-    $address: PropertyAddressInput!
-    $isBillingAddress: Boolean
-  ) {
+  mutation {
     propertyCreate(
+      clientId: "${clientId}",
       input: {
-        clientId: "${clientId}"
-        address: {
-          street1: "${address.street1}"
-          street2: "${address.street2 || ''}"
-          city: "${address.city}"
-          province: "${address.province}"
-          country: "${address.country}"
-          postalCode: "${address.postalCode}"
-        }
-        isBillingAddress: "${isBillingAddress}"
+        properties: [{
+          address: {
+            street1: "${address.street1 || ''}"
+            street2: "${address.street2 || ''}"
+            city: "${address.city || ''}"
+            province: "${address.province || ''}"
+            country: "${address.country || ''}"
+            postalCode: "${address.postalCode || ''}"
+          }
+        }]
       }
     ) {
-      property {
+      properties {
         id
         address {
           street1
@@ -396,30 +395,15 @@ app.post('/create-property', async (req, res) => {
           firstName
           lastName
         }
-        isBillingAddress
         jobberWebUri
         routingOrder
       }
       userErrors {
         message
         path
-        code
       }
     }
   }`;
-
-  const variables = {
-    clientId: clientId,
-    address: {
-      street1: address.street1,
-      street2: address.street2 || '',
-      city: address.city,
-      province: address.province,
-      country: address.country,
-      postalCode: address.postalCode
-    },
-    isBillingAddress: isBillingAddress
-  };
 
   try {
     const response = await fetch(`${API_CONFIG.baseUrl}${API_CONFIG.endpoints.graphql}`, {
@@ -430,8 +414,7 @@ app.post('/create-property', async (req, res) => {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        query,
-        variables
+        query
       })
     });
 
@@ -457,10 +440,10 @@ app.post('/create-property', async (req, res) => {
       });
     }
     
-    console.log('Property created:', data.data.propertyCreate.property);
+    console.log('Properties created:', data.data.propertyCreate.properties);
     return res.status(200).json({
       success: true,
-      property: data.data.propertyCreate.property
+      properties: data.data.propertyCreate.properties
     });
 
   } catch (error) {
@@ -584,11 +567,10 @@ app.get('/property/:propertyId', async (req, res) => {
   }
 });
 
-app.get('/status', async (req, res) => {
-  const gmail = req.query.gmail;
-  const token = sessions[gmail];
-console.log('@status/Token:', token);
-
+app.get('/getClient', async (req, res) => {
+const {email,token}  = req.body;
+console.log('email:',email);
+console.log('token:',token);
   if (!token) {
     return res.json({ loggedIn: false });
   }
@@ -596,6 +578,8 @@ console.log('@status/Token:', token);
   try {
     const repoRes = await fetch(`${API_CONFIG.baseUrl}${API_CONFIG.endpoints.graphql}`, {
       method: 'POST',
+      redirect: 'follow',
+      follow: 20,
       headers: {
         'Content-Type': 'application/json',
         'Accept': '*/*',
@@ -605,7 +589,7 @@ console.log('@status/Token:', token);
       body: JSON.stringify({
         query: `
           query {
-            clients {
+            clients(first: 1, searchTerm: "${email}") { 
               nodes {
                 id
                 firstName
@@ -621,11 +605,9 @@ console.log('@status/Token:', token);
       })
     });
     const clients = await repoRes.json();
-    console.log('Clients:', clients);
-    const names = clients.data.clients;
-    console.log('Names:', names);
-    console.log('totalCount:', clients.data.clients.totalCount);
-    res.json({ loggedIn: true, clients: names, totalCount: clients.data.clients.totalCount });
+    console.log('Clients:', clients.data.clients.nodes[0]);
+
+    res.json({ client: clients.data.clients.nodes[0]});
   } catch (e) {
     console.error('Repo fetch error', e);
     res.json({ loggedIn: false });
