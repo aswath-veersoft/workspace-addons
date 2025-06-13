@@ -230,6 +230,16 @@ query {
             }
           }
         }
+        requests(first: 10) {
+          edges {
+            node {
+              id
+              title
+              requestStatus
+              jobberWebUri
+            }
+          }
+        }
       }
     }
   }
@@ -271,7 +281,12 @@ query {
         lastName: client.lastName || '',
         email: client.emails?.nodes?.[0]?.address || '',
         address: client.clientProperties?.nodes?.[0]?.address || {},
-        jobs: client.jobs?.edges?.map(edge => edge.node) || []
+        jobs: client.jobs?.edges?.map(edge => edge.node) || [],
+        properties: client.clientProperties?.nodes?.map(prop => ({
+          id: prop.id,
+          address: prop.address || {}
+        })) || [],
+        requests: client.requests?.edges?.map(edge => edge.node) || []
       }
     });
   } catch (error) {
@@ -567,46 +582,201 @@ app.get('/property/:propertyId', async (req, res) => {
   }
 });
 
+app.post('/create-job', async (req, res) => {
+  const { 
+    jobTitle,
+    jobDescription,
+    propertyId,
+    clientId,
+    token
+  } = req.body;
+  console.log('Job Creation Request:', req.body);
 
-app.get('/client-jobs', async (req, res) => {
-  const email = req.query.email;
-  if (!email) {
-    return res.status(400).json({ error: 'Email is required.' });
+  if (!jobTitle || !propertyId || !token) {
+    return res.status(401).json({ 
+      error: 'Missing required fields', 
+      details: 'Authentication token, job title, and propertyId are required.' 
+    });
   }
 
   try {
-    // Check if client exists
-    const clientResponse = await fetch(`https://api.getjobber.com/api/clients?email=${email}`, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${process.env.GETJOBBER_API_TOKEN}`
+    const query = `
+mutation {
+  jobCreate(
+    input: {
+      clientId: "${clientId}",
+      title: "${jobTitle}",
+      propertyId: "${propertyId}",
+      instructions: "${jobDescription}",
+      invoicing: {
+        billingStrategy: FIXED_RATE,
+        billingFrequency: AFTER_JOB_COMPLETED
+      },
+      scheduling: {
+        createVisits: true,
+        notifyTeam: true
       }
+    }
+  ) {
+    job {
+      id
+      title
+      jobNumber
+      jobStatus
+      instructions
+      jobberWebUri
+      createdAt
+    }
+    userErrors {
+      message
+      path
+    }
+  }
+}
+
+
+`;
+
+
+
+    const response = await fetch(`${API_CONFIG.baseUrl}${API_CONFIG.endpoints.graphql}`, {
+      method: 'POST',
+      headers: {
+        'X-JOBBER-GRAPHQL-VERSION': '2025-01-20',
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        query
+      })
     });
 
-    const clientData = await clientResponse.json();
-    if (!clientData || clientData.length === 0) {
-      return res.status(404).json({ error: 'Client not found.' });
+    if (!response.ok) {
+      throw new Error(`Failed to create job: ${response.status} ${response.statusText}`);
     }
 
-    const clientId = clientData[0].id;
+    const data = await response.json();
+    console.log('Job Creation Response:', data);
+    
+    if (data.errors) {
+      console.error('GraphQL Errors:', data.errors);
+      return res.status(400).json({ 
+        error: 'Failed to create job', 
+        details: data.errors 
+      });
+    }
 
-    // Retrieve jobs for the client
-    const jobsResponse = await fetch(`https://api.getjobber.com/api/clients/${clientId}/jobs`, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${process.env.GETJOBBER_API_TOKEN}`
-      }
+    if (data.data.jobCreate.userErrors?.length > 0) {
+      return res.status(400).json({
+        error: 'Validation errors occurred',
+        details: data.data.jobCreate.userErrors
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      job: data.data.jobCreate.job
     });
 
-    const jobsData = await jobsResponse.json();
-    return res.status(200).json(jobsData);
   } catch (error) {
-    return res.status(500).json({
-      error: 'An error occurred while fetching client jobs.',
-      details: error.message
+    console.error('Error:', error);
+    return res.status(500).json({ 
+      error: 'Failed to create job', 
+      details: error.message 
     });
   }
 });
+
+app.post('/create-request', async (req, res) => {
+  const { 
+    requestTitle,
+    clientId,
+    token
+  } = req.body;
+  console.log('Request Creation Request:', req.body);
+
+  if (!requestTitle  || !token) {
+    return res.status(401).json({ 
+      error: 'Missing required fields', 
+      details: 'Authentication token, request title, and clientId are required.' 
+    });
+  }
+
+  try {
+    const query = `
+    mutation {
+      requestCreate(
+        input: {
+          clientId: "${clientId}",
+          title: "${requestTitle}"
+        }
+      ) {
+        request {
+          id
+          title
+          client {
+            id
+            name
+          }
+          createdAt
+        }
+        userErrors {
+          message
+        }
+      }
+    }
+    `;
+
+
+
+    const response = await fetch(`${API_CONFIG.baseUrl}${API_CONFIG.endpoints.graphql}`, {
+      method: 'POST',
+      headers: {
+        'X-JOBBER-GRAPHQL-VERSION': '2025-01-20',
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        query
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to create request: ${response.status} ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    console.log('Request Creation Response:', JSON.stringify(data, null, 2));
+    
+    if (data.errors) {
+      console.error('GraphQL Errors:', data.errors);
+      return res.status(400).json({ 
+        error: 'Failed to create request', 
+        details: data.errors 
+      });
+    }
+
+    if (data.data.requestCreate.userErrors?.length > 0) {
+      return res.status(400).json({
+        error: 'Validation errors occurred',
+        details: data.data.requestCreate.userErrors
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      request: data.data.requestCreate.request
+    });
+
+  } catch (error) {
+    console.error('Error:', error);
+    return res.status(500).json({ 
+      error: 'Failed to create request', 
+      details: error.message 
+    });
+  }
+});
+
 
 // Start the server
 app.listen(port, (err) => {
