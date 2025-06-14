@@ -587,7 +587,6 @@ app.post('/create-job', async (req, res) => {
     jobTitle,
     jobDescription,
     propertyId,
-    clientId,
     token
   } = req.body;
   console.log('Job Creation Request:', req.body);
@@ -600,43 +599,42 @@ app.post('/create-job', async (req, res) => {
   }
 
   try {
+
     const query = `
-mutation {
-  jobCreate(
-    input: {
-      clientId: "${clientId}",
-      title: "${jobTitle}",
-      propertyId: "${propertyId}",
-      instructions: "${jobDescription}",
-      invoicing: {
-        billingStrategy: FIXED_RATE,
-        billingFrequency: AFTER_JOB_COMPLETED
-      },
-      scheduling: {
-        createVisits: true,
-        notifyTeam: true
+    mutation {
+      jobCreate(
+        input: {
+          title: "${jobTitle}",
+          propertyId: "${propertyId}",
+          instructions: "${jobDescription}",
+          invoicing: {
+            invoicingSchedule: ON_COMPLETION
+            invoicingType: VISIT_BASED
+          },
+          scheduling: {
+            createVisits: false
+            visitConfirmationStatus: false
+            notifyTeam: false
+          }
+        }
+      ) {
+        job {
+          id
+          title
+          jobNumber
+          jobStatus
+          instructions
+          jobberWebUri
+          createdAt
+        }
+        userErrors {
+          message
+          path
+        }
       }
     }
-  ) {
-    job {
-      id
-      title
-      jobNumber
-      jobStatus
-      instructions
-      jobberWebUri
-      createdAt
-    }
-    userErrors {
-      message
-      path
-    }
-  }
-}
-
-
-`;
-
+  `;
+  
 
 
     const response = await fetch(`${API_CONFIG.baseUrl}${API_CONFIG.endpoints.graphql}`, {
