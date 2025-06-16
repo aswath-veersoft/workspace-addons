@@ -203,7 +203,9 @@ query {
     edges {
       node {
         id
-        name
+        firstName
+        lastName
+        companyName
         jobs(first: 20) {
           edges {
             node {
@@ -225,6 +227,16 @@ query {
               province
               country
               postalCode
+            }
+          }
+        }
+        requests(first: 10) {
+          edges {
+            node {
+              id
+              title
+              requestStatus
+              jobberWebUri
             }
           }
         }
@@ -251,7 +263,7 @@ query {
     }
 
     const data = await response.json();
-    
+    console.log('data:', data);
     // Check if we have any clients in the response
     const clientEdge = data?.data?.clients?.edges?.[0];
     if (!clientEdge) {
@@ -269,7 +281,12 @@ query {
         lastName: client.lastName || '',
         email: client.emails?.nodes?.[0]?.address || '',
         address: client.clientProperties?.nodes?.[0]?.address || {},
-        jobs: client.jobs?.edges?.map(edge => edge.node) || []
+        jobs: client.jobs?.edges?.map(edge => edge.node) || [],
+        properties: client.clientProperties?.nodes?.map(prop => ({
+          id: prop.id,
+          address: prop.address || {}
+        })) || [],
+        requests: client.requests?.edges?.map(edge => edge.node) || []
       }
     });
   } catch (error) {
@@ -350,8 +367,8 @@ app.post('/newclient', async (req, res) => {
 });
 
 app.post('/create-property', async (req, res) => {
-  const { address, token, clientId, isBillingAddress = false } = req.body;
-  console.log({ address, token, clientId, isBillingAddress });
+  const { address, token, clientId } = req.body;
+  console.log({ address, token, clientId });
 
   if (!address || !token || !clientId) {
     return res.status(401).json({ 
@@ -360,28 +377,25 @@ app.post('/create-property', async (req, res) => {
     });
   }
 
-  // Updated mutation to create a property with proper client association
+  // Simplified mutation without variables
   const query = `
-  mutation CreateProperty(
-    $clientId: ID!
-    $address: PropertyAddressInput!
-    $isBillingAddress: Boolean
-  ) {
+  mutation {
     propertyCreate(
+      clientId: "${clientId}",
       input: {
-        clientId: "${clientId}"
-        address: {
-          street1: "${address.street1}"
-          street2: "${address.street2 || ''}"
-          city: "${address.city}"
-          province: "${address.province}"
-          country: "${address.country}"
-          postalCode: "${address.postalCode}"
-        }
-        isBillingAddress: "${isBillingAddress}"
+        properties: [{
+          address: {
+            street1: "${address.street1 || ''}"
+            street2: "${address.street2 || ''}"
+            city: "${address.city || ''}"
+            province: "${address.province || ''}"
+            country: "${address.country || ''}"
+            postalCode: "${address.postalCode || ''}"
+          }
+        }]
       }
     ) {
-      property {
+      properties {
         id
         address {
           street1
@@ -396,30 +410,15 @@ app.post('/create-property', async (req, res) => {
           firstName
           lastName
         }
-        isBillingAddress
         jobberWebUri
         routingOrder
       }
       userErrors {
         message
         path
-        code
       }
     }
   }`;
-
-  const variables = {
-    clientId: clientId,
-    address: {
-      street1: address.street1,
-      street2: address.street2 || '',
-      city: address.city,
-      province: address.province,
-      country: address.country,
-      postalCode: address.postalCode
-    },
-    isBillingAddress: isBillingAddress
-  };
 
   try {
     const response = await fetch(`${API_CONFIG.baseUrl}${API_CONFIG.endpoints.graphql}`, {
@@ -430,8 +429,7 @@ app.post('/create-property', async (req, res) => {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        query,
-        variables
+        query
       })
     });
 
@@ -457,10 +455,10 @@ app.post('/create-property', async (req, res) => {
       });
     }
     
-    console.log('Property created:', data.data.propertyCreate.property);
+    console.log('Properties created:', data.data.propertyCreate.properties);
     return res.status(200).json({
       success: true,
-      property: data.data.propertyCreate.property
+      properties: data.data.propertyCreate.properties
     });
 
   } catch (error) {
@@ -584,93 +582,199 @@ app.get('/property/:propertyId', async (req, res) => {
   }
 });
 
-app.get('/status', async (req, res) => {
-  const gmail = req.query.gmail;
-  const token = sessions[gmail];
-console.log('@status/Token:', token);
+app.post('/create-job', async (req, res) => {
+  const { 
+    jobTitle,
+    jobDescription,
+    propertyId,
+    token
+  } = req.body;
+  console.log('Job Creation Request:', req.body);
 
-  if (!token) {
-    return res.json({ loggedIn: false });
+  if (!jobTitle || !propertyId || !token) {
+    return res.status(401).json({ 
+      error: 'Missing required fields', 
+      details: 'Authentication token, job title, and propertyId are required.' 
+    });
   }
 
   try {
-    const repoRes = await fetch(`${API_CONFIG.baseUrl}${API_CONFIG.endpoints.graphql}`, {
+
+    const query = `
+    mutation {
+      jobCreate(
+        input: {
+          title: "${jobTitle}",
+          propertyId: "${propertyId}",
+          instructions: "${jobDescription}",
+          invoicing: {
+            invoicingSchedule: ON_COMPLETION
+            invoicingType: VISIT_BASED
+          },
+          scheduling: {
+            createVisits: false
+            visitConfirmationStatus: false
+            notifyTeam: false
+          }
+        }
+      ) {
+        job {
+          id
+          title
+          jobNumber
+          jobStatus
+          instructions
+          jobberWebUri
+          createdAt
+        }
+        userErrors {
+          message
+          path
+        }
+      }
+    }
+  `;
+  
+
+
+    const response = await fetch(`${API_CONFIG.baseUrl}${API_CONFIG.endpoints.graphql}`, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
-        'Accept': '*/*',
-        'Authorization': `Bearer ${token}`,
-        'X-JOBBER-GRAPHQL-VERSION': '2025-01-20'
+        'X-JOBBER-GRAPHQL-VERSION': '2025-01-20',
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        query: `
-          query {
-            clients {
-              nodes {
-                id
-                firstName
-                lastName
-                billingAddress {
-                  city
-                }
-              }
-              totalCount
-            }
-          }
-        `
+        query
       })
     });
-    const clients = await repoRes.json();
-    console.log('Clients:', clients);
-    const names = clients.data.clients;
-    console.log('Names:', names);
-    console.log('totalCount:', clients.data.clients.totalCount);
-    res.json({ loggedIn: true, clients: names, totalCount: clients.data.clients.totalCount });
-  } catch (e) {
-    console.error('Repo fetch error', e);
-    res.json({ loggedIn: false });
+
+    if (!response.ok) {
+      throw new Error(`Failed to create job: ${response.status} ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    console.log('Job Creation Response:', data);
+    
+    if (data.errors) {
+      console.error('GraphQL Errors:', data.errors);
+      return res.status(400).json({ 
+        error: 'Failed to create job', 
+        details: data.errors 
+      });
+    }
+
+    if (data.data.jobCreate.userErrors?.length > 0) {
+      return res.status(400).json({
+        error: 'Validation errors occurred',
+        details: data.data.jobCreate.userErrors
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      job: data.data.jobCreate.job
+    });
+
+  } catch (error) {
+    console.error('Error:', error);
+    return res.status(500).json({ 
+      error: 'Failed to create job', 
+      details: error.message 
+    });
   }
 });
 
-app.get('/client-jobs', async (req, res) => {
-  const email = req.query.email;
-  if (!email) {
-    return res.status(400).json({ error: 'Email is required.' });
+app.post('/create-request', async (req, res) => {
+  const { 
+    requestTitle,
+    clientId,
+    token
+  } = req.body;
+  console.log('Request Creation Request:', req.body);
+
+  if (!requestTitle  || !token) {
+    return res.status(401).json({ 
+      error: 'Missing required fields', 
+      details: 'Authentication token, request title, and clientId are required.' 
+    });
   }
 
   try {
-    // Check if client exists
-    const clientResponse = await fetch(`https://api.getjobber.com/api/clients?email=${email}`, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${process.env.GETJOBBER_API_TOKEN}`
+    const query = `
+    mutation {
+      requestCreate(
+        input: {
+          clientId: "${clientId}",
+          title: "${requestTitle}"
+        }
+      ) {
+        request {
+          id
+          title
+          client {
+            id
+            name
+          }
+          createdAt
+        }
+        userErrors {
+          message
+        }
       }
+    }
+    `;
+
+
+
+    const response = await fetch(`${API_CONFIG.baseUrl}${API_CONFIG.endpoints.graphql}`, {
+      method: 'POST',
+      headers: {
+        'X-JOBBER-GRAPHQL-VERSION': '2025-01-20',
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        query
+      })
     });
 
-    const clientData = await clientResponse.json();
-    if (!clientData || clientData.length === 0) {
-      return res.status(404).json({ error: 'Client not found.' });
+    if (!response.ok) {
+      throw new Error(`Failed to create request: ${response.status} ${response.statusText}`);
     }
 
-    const clientId = clientData[0].id;
+    const data = await response.json();
+    console.log('Request Creation Response:', JSON.stringify(data, null, 2));
+    
+    if (data.errors) {
+      console.error('GraphQL Errors:', data.errors);
+      return res.status(400).json({ 
+        error: 'Failed to create request', 
+        details: data.errors 
+      });
+    }
 
-    // Retrieve jobs for the client
-    const jobsResponse = await fetch(`https://api.getjobber.com/api/clients/${clientId}/jobs`, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${process.env.GETJOBBER_API_TOKEN}`
-      }
+    if (data.data.requestCreate.userErrors?.length > 0) {
+      return res.status(400).json({
+        error: 'Validation errors occurred',
+        details: data.data.requestCreate.userErrors
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      request: data.data.requestCreate.request
     });
 
-    const jobsData = await jobsResponse.json();
-    return res.status(200).json(jobsData);
   } catch (error) {
-    return res.status(500).json({
-      error: 'An error occurred while fetching client jobs.',
-      details: error.message
+    console.error('Error:', error);
+    return res.status(500).json({ 
+      error: 'Failed to create request', 
+      details: error.message 
     });
   }
 });
+
 
 // Start the server
 app.listen(port, (err) => {
