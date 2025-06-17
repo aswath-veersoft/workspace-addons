@@ -2,10 +2,6 @@
 
 const express = require('express');
 const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
-const { createClient } = require('@supabase/supabase-js');
-
-const CLIENT_ID = process.env.CLIENT_ID || '7654ba07-61c8-4305-8f23-aac9090a7b76';
-const CLIENT_SECRET = process.env.CLIENT_SECRET || '33735ef23e7b514af0676ffd70c64e9799477c0615ba6cd392f450e38ed69457';
 
 // API Configuration
 const API_CONFIG = {
@@ -23,10 +19,6 @@ const sessions = {};
 
 const port = 3000;
 const callbackUrl = 'https://qeo63u-ip-122-171-23-179.tunnelmole.net/callback';
-
-const supabaseUrl = 'https://wakfztmwsvrrswxublvw.supabase.co';
-const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Indha2Z6dG13c3ZycnN3eHVibHZ3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzgyOTA5NDMsImV4cCI6MjA1Mzg2Njk0M30.cl9I1g6rCg94woWSfa5RN7WZtAPb65vTw7VQLEQE6sI';
-const supabase = createClient(supabaseUrl, supabaseKey);
 
 // Initialize Express app
 const app = express();
@@ -99,98 +91,6 @@ app.get('/callback', async (req, res) => {
   } catch (error) {
     console.error('GetJobber Auth Failed:', error.message);
     res.status(500).send('Authentication failed.');
-  }
-});
-
-// New endpoint to fetch clients using GraphQL
-app.get('/clients', async (req, res) => {
-  const gmail = req.query.gmail;
-  const token = req.query.token;
-  if (!token) {
-    return res.status(401).json({ error: 'Not authenticated. Please login first.' });
-  }
-
-  // Simpler query to test basic connectivity
-  const query = `
-    query {
-      clients {
-        nodes {
-          id
-          firstName
-          lastName
-          billingAddress {
-            city
-          }
-      }
-    totalCount
-  }
-    }
-  `;
-
-  try {
-    console.log('Making GraphQL request with token:', token.substring(0, 10) + '...');
-
-    const response = await fetch(`${API_CONFIG.baseUrl}${API_CONFIG.endpoints.graphql}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': '*/*',
-        'Authorization': `Bearer ${token}`,
-        'X-JOBBER-GRAPHQL-VERSION': '2025-01-20'
-      },
-      body: JSON.stringify({ query }),
-    });
-
-    console.log('Request URL:', `${API_CONFIG.baseUrl}${API_CONFIG.endpoints.graphql}`);
-    console.log('Request body:', JSON.stringify({ query }));
-
-    console.log('Response status:', response.status);
-    console.log('Response headers:', response.headers.raw());
-    const responseText = await response.text();
-    console.log('Raw response:', responseText);
-
-    // Check if the response indicates an authentication error
-    if (response.status === 401) {
-      return res.status(401).json({
-        error: 'Authentication failed',
-        details: 'The access token may be invalid or expired. Please try re-authenticating.'
-      });
-    }
-
-    let data;
-    try {
-      data = JSON.parse(responseText);
-    } catch (e) {
-      console.error('Failed to parse JSON response:', e);
-      return res.status(500).json({
-        error: 'Failed to parse API response',
-        details: responseText,
-        status: response.status,
-        headers: response.headers.raw()
-      });
-    }
-
-    if (data.errors) {
-      console.error('GraphQL Errors:', data.errors);
-      return res.status(400).json({ errors: data.errors });
-    }
-
-    if (!data.data) {
-      console.error('Unexpected response structure:', data);
-      return res.status(500).json({ error: 'Unexpected response structure from API' });
-    }
-
-    return res.status(200).json(data.data);
-  } catch (error) {
-    console.error('Error fetching account:', error);
-    if (error.response) {
-      console.error('Error response:', error.response.data);
-    }
-    return res.status(500).json({
-      error: 'Failed to fetch account data',
-      details: error.message,
-      stack: error.stack
-    });
   }
 });
 
@@ -470,117 +370,6 @@ app.post('/create-property', async (req, res) => {
   }
 });
 
-// Add a new endpoint to get property details
-app.get('/property/:propertyId', async (req, res) => {
-  const { propertyId } = req.params;
-  const { token } = req.query;
-
-  if (!token || !propertyId) {
-    return res.status(401).json({ 
-      error: 'Missing required fields', 
-      details: 'Authentication token and propertyId are required.' 
-    });
-  }
-
-  const query = `
-  query GetProperty($propertyId: ID!) {
-    property(id: $propertyId) {
-      id
-      address {
-        street1
-        street2
-        city
-        province
-        country
-        postalCode
-      }
-      client {
-        id
-        firstName
-        lastName
-      }
-      isBillingAddress
-      jobberWebUri
-      jobs(first: 10) {
-        edges {
-          node {
-            id
-            title
-            jobStatus
-          }
-        }
-      }
-      quotes(first: 10) {
-        edges {
-          node {
-            id
-            title
-            status
-          }
-        }
-      }
-      requests(first: 10) {
-        edges {
-          node {
-            id
-            title
-            status
-          }
-        }
-      }
-      routingOrder
-      taxRate {
-        id
-        name
-        rate
-      }
-    }
-  }`;
-
-  const variables = {
-    propertyId
-  };
-
-  try {
-    const response = await fetch(`${API_CONFIG.baseUrl}${API_CONFIG.endpoints.graphql}`, {
-      method: 'POST',
-      headers: {
-        'X-JOBBER-GRAPHQL-VERSION': '2025-01-20',
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        query,
-        variables
-      })
-    });
-
-    if (!response.ok) {
-      throw new Error(`Failed to fetch property: ${response.status} ${response.statusText}`);
-    }
-
-    const data = await response.json();
-    
-    if (data.errors) {
-      return res.status(400).json({ 
-        error: 'Failed to fetch property', 
-        details: data.errors 
-      });
-    }
-
-    return res.status(200).json({
-      success: true,
-      property: data.data.property
-    });
-
-  } catch (error) {
-    console.error('Error fetching property:', error);
-    return res.status(500).json({ 
-      error: 'Failed to fetch property', 
-      details: error.message 
-    });
-  }
-});
 
 app.post('/create-job', async (req, res) => {
   const { 
