@@ -5,7 +5,11 @@
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "start:getjobber": "node index.js"
+    "start:getjobber": "node index.js",
+    "clasp:login": "clasp login",
+    "clasp:create": "clasp create --type webapp",
+    "clasp:push": "clasp push",
+    "clasp:watch": "clasp push --watch"
   },
   "keywords": [],
   "author": "",
@@ -14,5 +18,8 @@
     "@supabase/supabase-js": "^2.49.4",
     "express": "^4.14.0",
     "node-fetch": "^3.3.2"
+  },
+  "devDependencies": {
+    "@google/clasp": "^2.4.2"
   }
 }

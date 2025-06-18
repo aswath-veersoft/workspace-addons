@@ -1,0 +1,41 @@
+# Ignore node_modules completely
+node_modules/
+
+# Ignore development files
+.git/
+.cursor/
+.vercel/
+getjobber-developer-docs/
+
+# Ignore package files
+package.json
+package-lock.json
+
+# Ignore development files
+README.md
+LICENSE
+.gitignore
+index.js
+vercel.json
+
+# Ignore any HTML files
+*.html
+
+# Ignore any documentation files
+*.md
+*.txt
+*.pdf
+
+# Ignore any test files
+test/
+tests/
+__tests__/
+
+# Ignore any config files except appsscript.json
+.clasp.json
+.claspignore
+
+# Ignore any other files that might be accidentally included
+*.log
+*.tmp
+*.temp 
