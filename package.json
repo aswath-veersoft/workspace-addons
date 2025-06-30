@@ -6,6 +6,7 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "start:getjobber": "node index.js",
+    "start": "node index.js",
     "clasp:login": "clasp login",
     "clasp:create": "clasp create --type webapp",
     "clasp:push": "clasp push",
@@ -17,6 +18,7 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.49.4",
     "@types/google-apps-script": "^1.0.99",
+    "dotenv": "^17.0.0",
     "express": "^4.14.0",
     "node-fetch": "^3.3.2"
   },

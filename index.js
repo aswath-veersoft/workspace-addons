@@ -2,6 +2,7 @@
 
 const express = require('express');
 const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
+require('dotenv').config();
 
 // API Configuration
 const API_CONFIG = {
@@ -17,7 +18,7 @@ const API_CONFIG = {
 let storedTokens = null;
 const sessions = {};
 
-const port = 3000;
+const port = process.env.PORT || 3000;
 const callbackUrl = 'https://qeo63u-ip-122-171-23-179.tunnelmole.net/callback';
 
 // Initialize Express app
@@ -388,7 +389,6 @@ app.post('/create-job', async (req, res) => {
   }
 
   try {
-
     const query = `
     mutation {
       jobCreate(
@@ -422,9 +422,7 @@ app.post('/create-job', async (req, res) => {
         }
       }
     }
-  `;
-  
-
+    `;
 
     const response = await fetch(`${API_CONFIG.baseUrl}${API_CONFIG.endpoints.graphql}`, {
       method: 'POST',
@@ -514,8 +512,6 @@ app.post('/create-request', async (req, res) => {
     }
     `;
 
-
-
     const response = await fetch(`${API_CONFIG.baseUrl}${API_CONFIG.endpoints.graphql}`, {
       method: 'POST',
       headers: {
@@ -563,7 +559,6 @@ app.post('/create-request', async (req, res) => {
     });
   }
 });
-
 
 // Start the server
 app.listen(port, (err) => {
